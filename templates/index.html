@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ammiee &mdash; Symptom Checker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="brand">
+        <span class="brand-mark">Ammiee</span>
+        <span class="brand-tag">Symptom Checker</span>
+      </div>
+      <nav class="nav">
+        <a href="#diagnose">Check symptoms</a>
+        <a href="#history">Patient history</a>
+        <a href="#insights">Model &amp; data</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+
+    {% if error %}
+      <div class="banner banner-error"><div class="banner-inner">{{ error }}</div></div>
+    {% endif %}
+    {% if notice %}
+      <div class="banner banner-notice"><div class="banner-inner">{{ notice }}</div></div>
+    {% endif %}
+
+    <!-- ============================================================ HERO -->
+    <section class="hero">
+      <div class="hero-inner">
+        <h1>Tell us what you&rsquo;re feeling.<br>We&rsquo;ll narrow down what it could be.</h1>
+        <p class="hero-lede">
+          Select the patient&rsquo;s symptoms below. The system compares them against
+          patterns learned from training data and ranks the conditions that fit best,
+          with a confidence score for each.
+        </p>
+        <div class="hero-stats">
+          <div class="stat">
+            <span class="stat-value">{{ n_records }}</span>
+            <span class="stat-label">training cases</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value">{{ symptom_count }}</span>
+            <span class="stat-label">symptoms tracked</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value">{{ cv_mean }}%</span>
+            <span class="stat-label">cross-validated accuracy</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================= DIAGNOSE -->
+    <section class="layout" id="diagnose">
+
+      <form class="panel panel-form" method="post" action="{{ url_for('predict') }}">
+        <div class="panel-head">
+          <h2>New diagnosis</h2>
+          <p>Fields marked * are required.</p>
+        </div>
+
+        <div class="field-group">
+          <div class="field">
+            <label class="label" for="name">Full name *</label>
+            <input class="input" type="text" id="name" name="name" required>
+          </div>
+          <div class="field field-narrow">
+            <label class="label" for="age">Age</label>
+            <input class="input" type="number" id="age" name="age" min="0" max="120">
+          </div>
+          <div class="field field-narrow">
+            <label class="label" for="gender">Gender</label>
+            <select class="input" id="gender" name="gender">
+              <option value="">&mdash;</option>
+              <option value="Male">Male</option>
+              <option value="Female">Female</option>
+            </select>
+          </div>
+          <div class="field field-narrow">
+            <label class="label" for="phone">Phone</label>
+            <input class="input" type="text" id="phone" name="phone">
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="label" for="quick_symptoms">
+            Type symptoms (comma separated) &mdash; optional
+          </label>
+          <input class="input" type="text" id="quick_symptoms" name="quick_symptoms"
+                 placeholder="e.g. fever, catarrh, body pain">
+        </div>
+
+        <div class="field">
+          <span class="label">Or tick from the list &mdash; at least {{ min_symptoms }} needed</span>
+          <div class="symptom-grid">
+            {% for symptom in features %}
+              <label class="symptom-item">
+                <input type="checkbox" name="symptom" value="{{ symptom }}">
+                <span>{{ pretty(symptom) }}</span>
+              </label>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="actions">
+          <button class="btn btn-ghost" type="reset">Clear form</button>
+          <button class="btn btn-primary" type="submit">Predict disease</button>
+        </div>
+      </form>
+
+      <aside class="panel panel-results">
+        <div class="panel-head">
+          <h2>Prediction</h2>
+        </div>
+
+        {% if result %}
+          <p class="result-patient">For <strong>{{ result.patient }}</strong> &mdash;
+             {{ result.symptoms | join(', ') }}</p>
+
+          {% if result.unknown %}
+            <p class="result-note">
+              Not recognised, so ignored: {{ result.unknown | join(', ') }}
+            </p>
+          {% endif %}
+
+          <div class="result-list">
+            {% for disease, confidence in result.results %}
+              <div class="result-row {{ 'result-row-top' if loop.first else '' }}">
+                <div class="result-row-head">
+                  <span class="result-rank">{{ loop.index }}</span>
+                  <span class="result-name">{{ disease }}</span>
+                  <span class="result-pct">{{ '%.1f' | format(confidence) }}%</span>
+                </div>
+                <div class="bar-track">
+                  <div class="bar-fill {{ 'bar-fill-accent' if loop.first else '' }}"
+                       style="width: {{ confidence }}%;"></div>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+
+          {% if result.low_confidence %}
+            <p class="result-warning">
+              Low confidence &mdash; these symptoms aren&rsquo;t specific enough.
+              Add more if you can.
+            </p>
+          {% endif %}
+        {% else %}
+          <p class="result-empty">
+            Results for the current patient will appear here once symptoms are submitted.
+          </p>
+        {% endif %}
+
+        <p class="disclaimer-chip">{{ disclaimer }}</p>
+      </aside>
+
+    </section>
+
+    <!-- ========================================================= HISTORY -->
+    <section class="section" id="history">
+      <div class="section-head">
+        <div>
+          <h2>Patient history</h2>
+          <p>{{ history_count }} record{{ '' if history_count == 1 else 's' }}
+             shown{% if q %} for "{{ q }}"{% endif %}.</p>
+        </div>
+        <form class="search-row" method="get" action="{{ url_for('index') }}#history">
+          <input class="input" type="text" name="q" value="{{ q }}"
+                 placeholder="Search by patient name">
+          <button class="btn btn-secondary" type="submit">Search</button>
+          {% if q %}<a class="btn btn-ghost" href="{{ url_for('index') }}#history">Clear</a>{% endif %}
+          <a class="btn btn-ghost" href="{{ url_for('export_csv', q=q) }}">Export CSV</a>
+        </form>
+      </div>
+
+      <div class="table-wrap">
+        <table class="history-table">
+          <thead>
+            <tr>
+              <th>ID</th><th>Date</th><th>Patient</th><th>Age</th><th>Gender</th>
+              <th>Symptoms</th><th>Top prediction</th><th>Confidence</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in history %}
+              <tr>
+                <td class="mono">{{ '%04d' | format(row.record_id) }}</td>
+                <td class="mono">{{ row.date[:16] }}</td>
+                <td>{{ row.patient_name }}</td>
+                <td>{{ row.age if row.age is not none else '\u2013' }}</td>
+                <td>{{ row.gender or '\u2013' }}</td>
+                <td class="truncate">{{ row.symptoms }}</td>
+                <td>{{ row.top_disease }}</td>
+                <td class="mono">{{ '%.1f' | format(row.confidence_pct) }}%</td>
+              </tr>
+            {% else %}
+              <tr><td colspan="8" class="empty-row">No records yet &mdash; run a diagnosis above.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ======================================================== INSIGHTS -->
+    <section class="section" id="insights">
+      <div class="section-head">
+        <div>
+          <h2>Model &amp; data</h2>
+          <p>What the model was trained on, and how it performs.</p>
+        </div>
+        <form method="post" action="{{ url_for('retrain') }}">
+          <button class="btn btn-secondary" type="submit">Retrain model</button>
+        </form>
+      </div>
+
+      <div class="insights-grid">
+
+        <div class="insight-card">
+          <h3>Model in use</h3>
+          <p class="model-headline">{{ model_name }}</p>
+          <dl class="model-meta">
+            <div><dt>Trained</dt><dd>{{ trained_at }}</dd></div>
+            <div><dt>Training records</dt><dd>{{ n_records }}</dd></div>
+            <div><dt>Hold-out accuracy</dt><dd>{{ accuracy }}%</dd></div>
+            <div><dt>5-fold CV accuracy</dt><dd>{{ cv_mean }}% &plusmn; {{ cv_std }}</dd></div>
+          </dl>
+        </div>
+
+        <div class="insight-card">
+          <h3>Model comparison</h3>
+          <p class="insight-sub">Cross-validation accuracy on training data.</p>
+          <div class="bar-list">
+            {% for name, pct in cv_scores %}
+              <div class="bar-row">
+                <span class="bar-label">{{ name }}</span>
+                <div class="bar-track"><div class="bar-fill" style="width: {{ pct }}%;"></div></div>
+                <span class="bar-value">{{ pct }}%</span>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="insight-card">
+          <h3>Training data by condition</h3>
+          <p class="insight-sub">How many records each condition has.</p>
+          <div class="bar-list">
+            {% for disease, count, pct in distribution %}
+              <div class="bar-row">
+                <span class="bar-label">{{ disease }}</span>
+                <div class="bar-track"><div class="bar-fill" style="width: {{ pct }}%;"></div></div>
+                <span class="bar-value">{{ count }}</span>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="insight-card">
+          <h3>Most predicted so far</h3>
+          <p class="insight-sub">Top result across saved patient records.</p>
+          {% if history_summary %}
+            <div class="bar-list">
+              {% for disease, count, pct in history_summary %}
+                <div class="bar-row">
+                  <span class="bar-label">{{ disease }}</span>
+                  <div class="bar-track"><div class="bar-fill bar-fill-accent" style="width: {{ pct }}%;"></div></div>
+                  <span class="bar-value">{{ count }}</span>
+                </div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <p class="result-empty">No predictions saved yet.</p>
+          {% endif %}
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    <p>{{ disclaimer }}</p>
+    <p class="footer-credit">Intelligent Disease Prediction System &mdash; built for a SIWES industrial training project.</p>
+  </footer>
+
+</body>
+</html>
